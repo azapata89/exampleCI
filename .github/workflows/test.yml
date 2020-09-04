@@ -1,33 +1,67 @@
-name: CICD
+name: TEST_CI
 
-on: [push]
-
+# evento o lo que motivará la ejecución de esta acción, se harà una comprobación por cada pull request
+on: [pull_request]
+# ejemplo de un evento apuntando a una rama, por ejemplo si se define una rama de desarrollo o master
+  # on:
+  #  push:
+  #    branches:
+  #      - master
+  #      - development/*
 jobs:
   build:
     runs-on: ubuntu-latest
-
+      Postgres:
+        # Imagen de Docker Hub
+        image: postgres
+        # Proporciona la contraseña para Postgres
+        env:
+          POSTGRES_PASSWORD: root
+        # Establece chequeos de estado para esperar hasta que postgres inicie las
+        opciones: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Asigna el puerto tcp 5432 del contenedor de servicios al host
+          -5432:5432
+      # Contenedores de servicios para ejecutar con servicios de `container-job`:
+      # Etiqueta utilizada para acceder al contenedor de servicios
+      redis:
+        # Imagen de Docker Hub
+        image: redis
+        # Establece revisiones de estado para esperar hasta que Redis inicie las
+        opciones: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
+      - name: Setup PHP
+       uses: shivammathur/setup-php@v2
+       with:
+         php-version: ${{ matrix.php }}
+         extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, php-bcmath, gd, php-pgsql
+         coverage: none
+      - name: Copy ENV Laravel Configuration for CI
+        run: php -r "file_exists('.env') || copy('.env.test', '.env');"
       - uses: actions/checkout@v1
+      - name: Create database
+        run: -u postgres psql -c 'create database test;'
       - name: Run composer install
         run: composer install -n --prefer-dist
+      - name: Generate apikey
+        run: php artisan key:generate
+      - name: Migrations
+        run: php artisan migrate --seed
       - name: Run tests
-        run: ./vendor/bin/phpunit
-        env:
-          APP_ENV: testing
-      - name: Upload artifacts
-        uses: actions/upload-artifact@master
-        if: failure()
-        with:
-          name: Logs
-          path: ./storage/logs
+        run: ./vendor/bin/phpunit --verbose
     services:
       nginx:
         image: nginx
         # Map port 8080 on the Docker host to port 80 on the nginx container
         ports:
           - 8080:80
-      redis:
-        image: redis
-        # Map TCP port 6379 on Docker host to a random free port on the Redis container
-        ports:
-          - 6379/tcp
+
+      
