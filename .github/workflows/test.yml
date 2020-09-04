@@ -1,67 +1,74 @@
-name: TEST_CI
-
-# evento o lo que motivará la ejecución de esta acción, se harà una comprobación por cada pull request
-on: [pull_request]
-# ejemplo de un evento apuntando a una rama, por ejemplo si se define una rama de desarrollo o master
-  # on:
-  #  push:
-  #    branches:
-  #      - master
-  #      - development/*
+# GitHub Action for Laravel with PostgreSQL and Redis
+name: Testing Laravel with PostgreSQL
+on: [push, pull_request]
 jobs:
-  build:
+  laravel:
+    name: Laravel (PHP ${{ matrix.php-versions }})
     runs-on: ubuntu-latest
-      Postgres:
-        # Imagen de Docker Hub
-        image: postgres
-        # Proporciona la contraseña para Postgres
-        env:
-          POSTGRES_PASSWORD: root
-        # Establece chequeos de estado para esperar hasta que postgres inicie las
-        opciones: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          # Asigna el puerto tcp 5432 del contenedor de servicios al host
-          -5432:5432
-      # Contenedores de servicios para ejecutar con servicios de `container-job`:
-      # Etiqueta utilizada para acceder al contenedor de servicios
-      redis:
-        # Imagen de Docker Hub
-        image: redis
-        # Establece revisiones de estado para esperar hasta que Redis inicie las
-        opciones: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - name: Setup PHP
-       uses: shivammathur/setup-php@v2
-       with:
-         php-version: ${{ matrix.php }}
-         extensions: dom, curl, libxml, mbstring, zip, pcntl, pdo, php-bcmath, gd, php-pgsql
-         coverage: none
-      - name: Copy ENV Laravel Configuration for CI
-        run: php -r "file_exists('.env') || copy('.env.test', '.env');"
-      - uses: actions/checkout@v1
-      - name: Create database
-        run: -u postgres psql -c 'create database test;'
-      - name: Run composer install
-        run: composer install -n --prefer-dist
-      - name: Generate apikey
-        run: php artisan key:generate
-      - name: Migrations
-        run: php artisan migrate --seed
-      - name: Run tests
-        run: ./vendor/bin/phpunit --verbose
+    env:
+      BROADCAST_DRIVER: log
+      CACHE_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      SESSION_DRIVER: redis
+      DB_CONNECTION: pgsql
+      DB_HOST: localhost
+      DB_PASSWORD: root
+      DB_USERNAME: postgres
+      DB_DATABASE: postgres
     services:
-      nginx:
-        image: nginx
-        # Map port 8080 on the Docker host to port 80 on the nginx container
+      postgres:
+        image: postgres:10.8
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: root
+          POSTGRES_DB: postgres
         ports:
-          - 8080:80
-
-      
+          - 5432/tcp
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 3
+      redis:
+        image: redis
+        ports:
+          - 6379/tcp
+        options: --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=3
+    strategy:
+      fail-fast: false
+      matrix:
+        php-versions: ['7.2', '7.3', '7.4']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Setup PHP, with composer and extensions
+        uses: shivammathur/setup-php@v2 #https://github.com/shivammathur/setup-php
+        with:
+          php-version: ${{ matrix.php-versions }}
+          extensions: mbstring, dom, fileinfo, pgsql
+          coverage: xdebug #optional
+      - name: Get composer cache directory
+        id: composercache
+        run: echo "::set-output name=dir::$(composer config cache-files-dir)"
+      - name: Cache composer dependencies
+        uses: actions/cache@v2
+        with:
+          path: ${{ steps.composercache.outputs.dir }}
+          # Use composer.json for key, if composer.lock is not committed.
+          # key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.json') }}
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-
+      - name: Install Composer dependencies
+        run: composer install --no-progress --prefer-dist --optimize-autoloader
+      - name: Prepare the application
+        run: |
+          php -r "file_exists('.env') || copy('.env.example', '.env');"
+          php artisan key:generate
+      - name: Clear Config
+        run: php artisan config:clear
+      - name: Run Migration
+        run: php artisan migrate -v
+        env:
+          DB_PORT: ${{ job.services.postgres.ports[5432] }}
+          REDIS_PORT: ${{ job.services.redis.ports['6379'] }}
+      - name: Test with phpunit
+        run: vendor/bin/phpunit --coverage-text
+        env:
+          DB_PORT: ${{ job.services.postgres.ports[5432] }}
+          REDIS_PORT: ${{ job.services.redis.ports['6379'] }}
