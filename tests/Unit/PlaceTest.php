@@ -15,7 +15,7 @@ class PlaceTest extends TestCase
     public function test_it_cretae_place()
     {
         $response = $this->json('POST', '/create/place', ['name' => 'Sede # 1']);
-        
+        $response->dump();
         $response
             ->assertStatus(201)
             ->assertJson([
