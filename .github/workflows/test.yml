@@ -1,5 +1,5 @@
 # GitHub Action for Laravel with PostgreSQL and Redis
-name: Testing Laravel with PostgreSQL
+name: Testing Laravel with PostgreSQL and Redis
 on: [push, pull_request]
 jobs:
   laravel:
@@ -14,14 +14,14 @@ jobs:
       DB_HOST: localhost
       DB_PASSWORD: root
       DB_USERNAME: postgres
-      DB_DATABASE: postgres
+      DB_DATABASE: test
     services:
       postgres:
-        image: postgres:10.8
+        image: postgres:9.6
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: root
-          POSTGRES_DB: postgres
+          POSTGRES_DB: test
         ports:
           - 5432/tcp
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 3
@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php-versions: ['7.2', '7.3', '7.4']
+        php-versions: ['7.2']
     steps:
       - name: Checkout
         uses: actions/checkout@v2
